@@ -1,46 +1,54 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenAI } from "@google/genai";
 import fs from "fs";
 import dotenv from "dotenv";
-dotenv.config()
+import path from "path";
 
-const ai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+dotenv.config();
 
-export const analyseImage = async(imagePath)=> {
-    try{
-      const buffer = fs.readFileSync(imagePath);    //read image and convert it to a base64 
-      const base64Data  = buffer.toString("base64");
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
-      const mimeType = "image/png";
-       const input = `
-      Look at this image and return only valid JSON with:
-      - scene: a short description of what the image shows
-      - mood: the overall feeling or sentiment (happy, sad, calm, energetic, neutral)
-      - tags: array of important objects, people, animals, or scene details`;
+export const analyseImage = async (imagePath) => {
+  try {
+    const buffer = fs.readFileSync(imagePath);
+    const base64Data = buffer.toString("base64");
 
-      
-      const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });  
+    const ext = path.extname(imagePath).toLowerCase();
+    const mimeType = "image/png";
 
-      const result = await model.generateContent({
-        model:"gemini-1.5-flash",
-        contents:[
-          {
-            role:"user",
-            parts:[
-              {text:input},
-              {inlineData:{mimeType,data:base64Data}}
-            ]
-          },
-        ],
-        generationConfig: { responseMimeType: "application/json" },
+    const prompt = `Return ONLY valid JSON:
+        {
+          "scene": "...",
+          "mood": "...",
+          "tags": ["..."]
+        }`;
 
-      });
+    const result = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: [
+        {
+          role: "user",
+          parts: [
+            { text: prompt },
+            { inlineData: { mimeType, data: base64Data } },
+          ],
+        },
+      ],
+      generationConfig: { responseMimeType: "application/json" },
+    });
 
-       return JSON.parse(result.response.candidates[0].content.parts[0].text);
+    const text =
+      result.text || result.candidates?.[0]?.content?.parts?.[0]?.text;
 
-    }catch(error){
-      console.error("Error in analyzing", error.message);
-      throw new Error("Image object analysing faliure");
+    if (!text) throw new Error("Empty Gemini response");
 
-    }  
+    const cleanText = text
+      .replace(/```json/g, "")
+      .replace(/```/g, "")
+      .trim();
 
+    return JSON.parse(cleanText);
+  } catch (error) {
+    console.error("Gemini error:", error);
+    throw new Error("Image analysis failed");
+  }
 };
